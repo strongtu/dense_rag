@@ -1,0 +1,20 @@
+# Dense RAG Service Configuration
+# This is the actual configuration file for the Dense RAG service
+
+# HTTP server listen address
+host: "127.0.0.1"
+
+# HTTP server listen port
+port: 8123
+
+# Number of top results to return for each query
+topk: 5
+
+# Directory to monitor for file changes (supports ~ for home)
+watch_dir: "~/Documents"
+
+# Embedding model name (OpenAI API compatible)
+model: "text-embedding-bge-m3"
+
+# Embedding service endpoint (OpenAI API compatible)
+model_endpoint: "http://10.45.28.35:1234"
