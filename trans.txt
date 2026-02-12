@@ -1,0 +1,28 @@
+本工程是我一个实现性质项目，用于探索自然语言和ai编程的边界
+工程目的：在linux环境下，生成一个自动监控目录文件变化，提供向量检索的服务，提供给openclaw用以快速进行资料搜索
+
+实验分了几个步骤进行：
+
+工程建立
+    dense_rag.txt这是原始需求，将其给到claude-internal进行评估后，从0生成项目
+    手动测试验收通过
+
+自动化测试建设
+    dense_rag_test.txt是建立测试用例的原始需求
+    经claude-internal丰富规格化为dense_rag_test_ai.txt
+    再由claude-internal生成测试用例，手动测试验收通过
+    本次claude-internal对话记录在dense_rag_test_ai.md
+
+功能迭代
+    dense_wsl.txt是新增需求，经claude-internal评估后，进行了细节调整
+    再由claude-internal生成代码，原自动化测试用例全部通过
+    新功能经手动测试验收通过
+    本地与claude-internal对话记录在dense_wsl.md
+
+
+请根据以上信息，生成一个适合简短技术分享的文章，要求
+1. 交代清楚背景
+2. 有清晰的段落划分
+3. 分步骤讲清楚流程，尤其是需求txt的建立和重要性
+4. 与cluade-internal的关键对话要摘抄，尤其是调整需求细节的部分，以便传授经验
+5. 个人观点：AI辅助编程(产物是传统代码)的范式，比较强大。但适用场合要谨慎，也非常依赖需求文档的细节程度
