@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"dense-rag/internal/cleaning"
-	"dense-rag/internal/config"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -26,11 +25,18 @@ const (
 	DefaultPoolSize       = 4
 )
 
-// Watcher monitors a directory tree for file changes and dispatches events
-// through a debouncer and worker pool to a caller-provided processing function.
-type Watcher struct {
+// DirWatcher is the interface satisfied by both NotifyWatcher and PollWatcher.
+type DirWatcher interface {
+	Start(ctx context.Context) error
+	Stop()
+}
+
+// NotifyWatcher monitors a directory tree for file changes using fsnotify and
+// dispatches events through a debouncer and worker pool to a caller-provided
+// processing function.
+type NotifyWatcher struct {
 	fsw       *fsnotify.Watcher
-	cfg       *config.Config
+	dir       string
 	pool      *Pool
 	debouncer *Debouncer
 	processFn func(path string, op EventOp)
@@ -38,17 +44,17 @@ type Watcher struct {
 	done      chan struct{}
 }
 
-// NewWatcher creates a Watcher that watches cfg.WatchDir recursively.
+// NewNotifyWatcher creates a NotifyWatcher that watches dir recursively.
 // processFn is called (via the worker pool) for each debounced event.
-func NewWatcher(cfg *config.Config, processFn func(path string, op EventOp)) (*Watcher, error) {
+func NewNotifyWatcher(dir string, processFn func(path string, op EventOp)) (*NotifyWatcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 
-	return &Watcher{
+	return &NotifyWatcher{
 		fsw:       fsw,
-		cfg:       cfg,
+		dir:       dir,
 		pool:      NewPool(DefaultPoolSize),
 		debouncer: NewDebouncer(DefaultDebounceWindow),
 		processFn: processFn,
@@ -58,10 +64,10 @@ func NewWatcher(cfg *config.Config, processFn func(path string, op EventOp)) (*W
 
 // Start begins watching the directory tree. It blocks until ctx is cancelled
 // or an unrecoverable error occurs.
-func (w *Watcher) Start(ctx context.Context) error {
+func (w *NotifyWatcher) Start(ctx context.Context) error {
 	ctx, w.cancel = context.WithCancel(ctx)
 
-	if err := w.addDirRecursive(w.cfg.WatchDir); err != nil {
+	if err := w.addDirRecursive(w.dir); err != nil {
 		return err
 	}
 
@@ -86,7 +92,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 }
 
 // Stop shuts down the watcher, debouncer, and worker pool.
-func (w *Watcher) Stop() {
+func (w *NotifyWatcher) Stop() {
 	if w.cancel != nil {
 		w.cancel()
 	}
@@ -98,7 +104,7 @@ func (w *Watcher) Stop() {
 }
 
 // addDirRecursive walks the directory tree and adds each directory to fsnotify.
-func (w *Watcher) addDirRecursive(dir string) error {
+func (w *NotifyWatcher) addDirRecursive(dir string) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // skip inaccessible paths
@@ -113,7 +119,7 @@ func (w *Watcher) addDirRecursive(dir string) error {
 }
 
 // handleEvent filters and dispatches a single fsnotify event.
-func (w *Watcher) handleEvent(event fsnotify.Event) {
+func (w *NotifyWatcher) handleEvent(event fsnotify.Event) {
 	path := event.Name
 
 	// If a new directory is created, start watching it recursively.

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -50,16 +52,22 @@ func main() {
 	// Initialize embedding client.
 	embedClient := embedding.NewClient(cfg.ModelEndpoint, cfg.Model, 0)
 
-	// Startup reconciliation: scan watch_dir, diff with store, queue updates.
-	added, removed, updated := st.Reconcile(cfg.WatchDir, []string{".txt", ".docx"})
+	// Ensure all watch directories exist.
+	for _, dir := range cfg.WatchDirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Fatalf("create watch dir %s: %v", dir, err)
+		}
+	}
+
+	// Startup reconciliation: scan all watch_dirs, diff with store, queue updates.
+	added, removed, updated := st.Reconcile(cfg.WatchDirs, []string{".txt", ".docx"})
 	processFile(st, embedClient, added, updated, removed)
 
-	stats := st.Stats()
 	log.Printf("startup reconciliation complete: %d added, %d updated, %d removed",
 		len(added), len(updated), len(removed))
 
-	// Initialize and start file watcher.
-	w, err := watcher.NewWatcher(cfg, func(path string, op watcher.EventOp) {
+	// processFn is shared by all watchers.
+	processFn := func(path string, op watcher.EventOp) {
 		switch op {
 		case watcher.OpCreateModify:
 			processFileEvent(st, embedClient, path)
@@ -67,24 +75,40 @@ func main() {
 			st.Remove(path)
 			log.Printf("removed: %s", path)
 		}
-	})
-	if err != nil {
-		log.Fatalf("create watcher: %v", err)
 	}
 
-	// Ensure watch directory exists.
-	if err := os.MkdirAll(cfg.WatchDir, 0755); err != nil {
-		log.Fatalf("create watch dir: %v", err)
+	// Create per-directory watchers.
+	var watchers []watcher.DirWatcher
+	for _, dir := range cfg.WatchDirs {
+		if watcher.NeedsPollWatcher(dir) {
+			// Build initial snapshot so the first poll cycle doesn't re-emit
+			// files already processed during reconciliation.
+			snap := watcher.BuildSnapshot(dir)
+			pw := watcher.NewPollWatcher(dir, processFn, snap)
+			watchers = append(watchers, pw)
+			log.Printf("watch: %s (poll, 10s interval)", dir)
+		} else {
+			nw, err := watcher.NewNotifyWatcher(dir, processFn)
+			if err != nil {
+				log.Fatalf("create watcher for %s: %v", dir, err)
+			}
+			watchers = append(watchers, nw)
+			log.Printf("watch: %s (fsnotify)", dir)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() {
-		if err := w.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("watcher error: %v", err)
-		}
-	}()
+	// Start all watchers.
+	for _, w := range watchers {
+		w := w
+		go func() {
+			if err := w.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("watcher error: %v", err)
+			}
+		}()
+	}
 
 	// Initialize and start HTTP API server.
 	srv := api.NewServer(cfg, st, embedClient)
@@ -94,9 +118,10 @@ func main() {
 		}
 	}()
 
-	stats = st.Stats()
+	stats := st.Stats()
+	dirList := fmt.Sprintf("[%s]", strings.Join(cfg.WatchDirs, ", "))
 	log.Printf("dense-rag started: listening on %s:%d, watching %s, model %s, %d indexed files",
-		cfg.Host, cfg.Port, cfg.WatchDir, cfg.Model, stats.IndexedFiles)
+		cfg.Host, cfg.Port, dirList, cfg.Model, stats.IndexedFiles)
 
 	// Wait for interrupt signal.
 	sigCh := make(chan os.Signal, 1)
@@ -104,9 +129,11 @@ func main() {
 	sig := <-sigCh
 	log.Printf("received %v, shutting down...", sig)
 
-	// Stop file watcher (no new events).
+	// Stop all watchers (no new events).
 	cancel()
-	w.Stop()
+	for _, w := range watchers {
+		w.Stop()
+	}
 
 	// Save store to disk.
 	if err := st.Save(storePath); err != nil {

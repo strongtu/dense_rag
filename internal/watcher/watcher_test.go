@@ -7,15 +7,7 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"dense-rag/internal/config"
 )
-
-func testConfig(watchDir string) *config.Config {
-	cfg := config.DefaultConfig()
-	cfg.WatchDir = watchDir
-	return cfg
-}
 
 func TestDebouncerCoalesces(t *testing.T) {
 	var mu sync.Mutex
@@ -140,7 +132,7 @@ func TestPoolShutdown(t *testing.T) {
 	}
 }
 
-func TestWatcherCreateModify(t *testing.T) {
+func TestNotifyWatcherCreateModify(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	var mu sync.Mutex
@@ -152,9 +144,9 @@ func TestWatcherCreateModify(t *testing.T) {
 		mu.Unlock()
 	}
 
-	w, err := NewWatcher(testConfig(tmpDir), processFn)
+	w, err := NewNotifyWatcher(tmpDir, processFn)
 	if err != nil {
-		t.Fatalf("NewWatcher: %v", err)
+		t.Fatalf("NewNotifyWatcher: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -189,7 +181,7 @@ func TestWatcherCreateModify(t *testing.T) {
 	}
 }
 
-func TestWatcherDelete(t *testing.T) {
+func TestNotifyWatcherDelete(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Pre-create a file before the watcher starts.
@@ -207,9 +199,9 @@ func TestWatcherDelete(t *testing.T) {
 		mu.Unlock()
 	}
 
-	w, err := NewWatcher(testConfig(tmpDir), processFn)
+	w, err := NewNotifyWatcher(tmpDir, processFn)
 	if err != nil {
-		t.Fatalf("NewWatcher: %v", err)
+		t.Fatalf("NewNotifyWatcher: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -239,7 +231,7 @@ func TestWatcherDelete(t *testing.T) {
 	}
 }
 
-func TestWatcherIgnoresUnsupported(t *testing.T) {
+func TestNotifyWatcherIgnoresUnsupported(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	var mu sync.Mutex
@@ -251,9 +243,9 @@ func TestWatcherIgnoresUnsupported(t *testing.T) {
 		mu.Unlock()
 	}
 
-	w, err := NewWatcher(testConfig(tmpDir), processFn)
+	w, err := NewNotifyWatcher(tmpDir, processFn)
 	if err != nil {
-		t.Fatalf("NewWatcher: %v", err)
+		t.Fatalf("NewNotifyWatcher: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -282,7 +274,7 @@ func TestWatcherIgnoresUnsupported(t *testing.T) {
 	}
 }
 
-func TestWatcherNewSubdirectory(t *testing.T) {
+func TestNotifyWatcherNewSubdirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	var mu sync.Mutex
@@ -294,9 +286,9 @@ func TestWatcherNewSubdirectory(t *testing.T) {
 		mu.Unlock()
 	}
 
-	w, err := NewWatcher(testConfig(tmpDir), processFn)
+	w, err := NewNotifyWatcher(tmpDir, processFn)
 	if err != nil {
-		t.Fatalf("NewWatcher: %v", err)
+		t.Fatalf("NewNotifyWatcher: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

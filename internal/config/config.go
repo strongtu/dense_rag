@@ -12,12 +12,24 @@ import (
 
 // Config holds all configuration for the dense-rag service.
 type Config struct {
-	Host          string `yaml:"host"`
-	Port          int    `yaml:"port"`
-	TopK          int    `yaml:"topk"`
-	WatchDir      string `yaml:"watch_dir"`
-	Model         string `yaml:"model"`
-	ModelEndpoint string `yaml:"model_endpoint"`
+	Host          string   `yaml:"host"`
+	Port          int      `yaml:"port"`
+	TopK          int      `yaml:"topk"`
+	WatchDirs     []string `yaml:"-"`
+	Model         string   `yaml:"model"`
+	ModelEndpoint string   `yaml:"model_endpoint"`
+}
+
+// rawConfig is used for YAML unmarshaling to support both watch_dir (string)
+// and watch_dirs (array) formats.
+type rawConfig struct {
+	Host          string   `yaml:"host"`
+	Port          int      `yaml:"port"`
+	TopK          int      `yaml:"topk"`
+	WatchDir      string   `yaml:"watch_dir"`
+	WatchDirs     []string `yaml:"watch_dirs"`
+	Model         string   `yaml:"model"`
+	ModelEndpoint string   `yaml:"model_endpoint"`
 }
 
 // DefaultConfig returns a Config populated with default values.
@@ -26,7 +38,7 @@ func DefaultConfig() *Config {
 		Host:          "127.0.0.1",
 		Port:          8123,
 		TopK:          5,
-		WatchDir:      "~/Documents",
+		WatchDirs:     []string{"~/Documents"},
 		Model:         "text-embedding-bge-m3",
 		ModelEndpoint: "http://127.0.0.1:11434",
 	}
@@ -49,39 +61,41 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			cfg.WatchDir = expandTilde(cfg.WatchDir)
+			cfg.WatchDirs = expandTildeDirs(cfg.WatchDirs)
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("read config file: %w", err)
 	}
 
-	// Unmarshal into a separate struct so we can detect which fields were
-	// explicitly set in the file (non-zero values override defaults).
-	var fileCfg Config
-	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
+	var raw rawConfig
+	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse config file: %w", err)
 	}
 
-	if fileCfg.Host != "" {
-		cfg.Host = fileCfg.Host
+	if raw.Host != "" {
+		cfg.Host = raw.Host
 	}
-	if fileCfg.Port != 0 {
-		cfg.Port = fileCfg.Port
+	if raw.Port != 0 {
+		cfg.Port = raw.Port
 	}
-	if fileCfg.TopK != 0 {
-		cfg.TopK = fileCfg.TopK
+	if raw.TopK != 0 {
+		cfg.TopK = raw.TopK
 	}
-	if fileCfg.WatchDir != "" {
-		cfg.WatchDir = fileCfg.WatchDir
+	if raw.Model != "" {
+		cfg.Model = raw.Model
 	}
-	if fileCfg.Model != "" {
-		cfg.Model = fileCfg.Model
-	}
-	if fileCfg.ModelEndpoint != "" {
-		cfg.ModelEndpoint = fileCfg.ModelEndpoint
+	if raw.ModelEndpoint != "" {
+		cfg.ModelEndpoint = raw.ModelEndpoint
 	}
 
-	cfg.WatchDir = expandTilde(cfg.WatchDir)
+	// watch_dirs (array) takes precedence over watch_dir (string).
+	if len(raw.WatchDirs) > 0 {
+		cfg.WatchDirs = raw.WatchDirs
+	} else if raw.WatchDir != "" {
+		cfg.WatchDirs = []string{raw.WatchDir}
+	}
+
+	cfg.WatchDirs = expandTildeDirs(cfg.WatchDirs)
 
 	return cfg, nil
 }
@@ -91,8 +105,16 @@ func (c *Config) Validate() error {
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("port must be between 1 and 65535, got %d", c.Port)
 	}
-	if c.WatchDir == "" {
-		return errors.New("watch_dir must not be empty")
+	if len(c.WatchDirs) == 0 {
+		return errors.New("watch_dirs must not be empty")
+	}
+	for _, d := range c.WatchDirs {
+		if d == "" {
+			return errors.New("watch_dirs entries must not be empty")
+		}
+	}
+	if err := validateNoOverlap(c.WatchDirs); err != nil {
+		return err
 	}
 	if c.Model == "" {
 		return errors.New("model must not be empty")
@@ -101,6 +123,50 @@ func (c *Config) Validate() error {
 		return errors.New("model_endpoint must not be empty")
 	}
 	return nil
+}
+
+// validateNoOverlap checks that no directory in dirs is an ancestor of another.
+func validateNoOverlap(dirs []string) error {
+	// Normalize all paths to absolute + clean form.
+	abs := make([]string, len(dirs))
+	for i, d := range dirs {
+		a, err := filepath.Abs(d)
+		if err != nil {
+			return fmt.Errorf("resolve path %q: %w", d, err)
+		}
+		abs[i] = filepath.Clean(a)
+	}
+
+	for i := 0; i < len(abs); i++ {
+		for j := i + 1; j < len(abs); j++ {
+			if isAncestorOrEqual(abs[i], abs[j]) {
+				return fmt.Errorf("watch_dirs overlap: %q contains %q", dirs[i], dirs[j])
+			}
+			if isAncestorOrEqual(abs[j], abs[i]) {
+				return fmt.Errorf("watch_dirs overlap: %q contains %q", dirs[j], dirs[i])
+			}
+		}
+	}
+	return nil
+}
+
+// isAncestorOrEqual returns true if ancestor is a parent of (or equal to) child.
+func isAncestorOrEqual(ancestor, child string) bool {
+	if ancestor == child {
+		return true
+	}
+	// Ensure ancestor ends with separator so "/mnt/c" doesn't match "/mnt/cdrom".
+	prefix := ancestor + string(filepath.Separator)
+	return strings.HasPrefix(child, prefix)
+}
+
+// expandTildeDirs applies tilde expansion to every entry in dirs.
+func expandTildeDirs(dirs []string) []string {
+	out := make([]string, len(dirs))
+	for i, d := range dirs {
+		out[i] = expandTilde(d)
+	}
+	return out
 }
 
 // expandTilde replaces a leading ~ in a path with the user's home directory.

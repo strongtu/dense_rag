@@ -19,8 +19,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.TopK != 5 {
 		t.Errorf("TopK = %d, want %d", cfg.TopK, 5)
 	}
-	if cfg.WatchDir != "~/Documents" {
-		t.Errorf("WatchDir = %q, want %q", cfg.WatchDir, "~/Documents")
+	if len(cfg.WatchDirs) != 1 || cfg.WatchDirs[0] != "~/Documents" {
+		t.Errorf("WatchDirs = %v, want [~/Documents]", cfg.WatchDirs)
 	}
 	if cfg.Model != "text-embedding-bge-m3" {
 		t.Errorf("Model = %q, want %q", cfg.Model, "text-embedding-bge-m3")
@@ -85,7 +85,7 @@ func TestLoad_ValidYAML(t *testing.T) {
 	}
 }
 
-func TestLoad_TildeExpansion(t *testing.T) {
+func TestLoad_LegacyWatchDir(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
@@ -105,12 +105,56 @@ func TestLoad_TildeExpansion(t *testing.T) {
 	}
 
 	expected := filepath.Join(home, "MyDocs")
-	if cfg.WatchDir != expected {
-		t.Errorf("WatchDir = %q, want %q", cfg.WatchDir, expected)
+	if len(cfg.WatchDirs) != 1 || cfg.WatchDirs[0] != expected {
+		t.Errorf("WatchDirs = %v, want [%s]", cfg.WatchDirs, expected)
 	}
 
-	if strings.HasPrefix(cfg.WatchDir, "~") {
-		t.Error("WatchDir still contains tilde after loading")
+	if strings.HasPrefix(cfg.WatchDirs[0], "~") {
+		t.Error("WatchDirs[0] still contains tilde after loading")
+	}
+}
+
+func TestLoad_WatchDirsArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yamlContent := []byte("watch_dirs:\n  - /tmp/dir1\n  - /tmp/dir2\n")
+	if err := os.WriteFile(path, yamlContent, 0644); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if len(cfg.WatchDirs) != 2 {
+		t.Fatalf("WatchDirs length = %d, want 2", len(cfg.WatchDirs))
+	}
+	if cfg.WatchDirs[0] != "/tmp/dir1" || cfg.WatchDirs[1] != "/tmp/dir2" {
+		t.Errorf("WatchDirs = %v, want [/tmp/dir1, /tmp/dir2]", cfg.WatchDirs)
+	}
+}
+
+func TestLoad_WatchDirsTakesPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yamlContent := []byte("watch_dir: /tmp/old\nwatch_dirs:\n  - /tmp/new1\n  - /tmp/new2\n")
+	if err := os.WriteFile(path, yamlContent, 0644); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if len(cfg.WatchDirs) != 2 {
+		t.Fatalf("WatchDirs length = %d, want 2", len(cfg.WatchDirs))
+	}
+	if cfg.WatchDirs[0] != "/tmp/new1" {
+		t.Errorf("WatchDirs[0] = %q, want /tmp/new1", cfg.WatchDirs[0])
 	}
 }
 
@@ -121,8 +165,8 @@ func TestLoad_DefaultTildeExpansion(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	if strings.HasPrefix(cfg.WatchDir, "~") {
-		t.Error("WatchDir still contains tilde after loading defaults")
+	if strings.HasPrefix(cfg.WatchDirs[0], "~") {
+		t.Error("WatchDirs[0] still contains tilde after loading defaults")
 	}
 
 	home, err := os.UserHomeDir()
@@ -131,8 +175,8 @@ func TestLoad_DefaultTildeExpansion(t *testing.T) {
 	}
 
 	expected := filepath.Join(home, "Documents")
-	if cfg.WatchDir != expected {
-		t.Errorf("WatchDir = %q, want %q", cfg.WatchDir, expected)
+	if cfg.WatchDirs[0] != expected {
+		t.Errorf("WatchDirs[0] = %q, want %q", cfg.WatchDirs[0], expected)
 	}
 }
 
@@ -164,11 +208,19 @@ func TestValidate_Defaults(t *testing.T) {
 	}
 }
 
-func TestValidate_EmptyWatchDir(t *testing.T) {
+func TestValidate_EmptyWatchDirs(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.WatchDir = ""
+	cfg.WatchDirs = nil
 	if err := cfg.Validate(); err == nil {
-		t.Error("Validate() should return error for empty WatchDir")
+		t.Error("Validate() should return error for empty WatchDirs")
+	}
+}
+
+func TestValidate_EmptyWatchDirEntry(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WatchDirs = []string{"/tmp/valid", ""}
+	if err := cfg.Validate(); err == nil {
+		t.Error("Validate() should return error for empty WatchDirs entry")
 	}
 }
 
@@ -185,5 +237,37 @@ func TestValidate_EmptyModelEndpoint(t *testing.T) {
 	cfg.ModelEndpoint = ""
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() should return error for empty ModelEndpoint")
+	}
+}
+
+func TestValidate_OverlappingDirs(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WatchDirs = []string{"/tmp/docs", "/tmp/docs/notes"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("Validate() should return error for overlapping directories")
+	}
+}
+
+func TestValidate_OverlappingDirsReversed(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WatchDirs = []string{"/tmp/docs/notes", "/tmp/docs"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("Validate() should return error for overlapping directories (reversed)")
+	}
+}
+
+func TestValidate_IndependentDirs(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WatchDirs = []string{"/tmp/docs", "/tmp/notes"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() should accept independent dirs, got: %v", err)
+	}
+}
+
+func TestValidate_SimilarPrefixNotOverlap(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WatchDirs = []string{"/mnt/c", "/mnt/cdrom"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() should accept /mnt/c and /mnt/cdrom as non-overlapping, got: %v", err)
 	}
 }

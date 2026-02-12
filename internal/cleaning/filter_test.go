@@ -21,6 +21,9 @@ func TestIsSupportedFile(t *testing.T) {
 		{"data.pdf", false},
 		{"archive.zip", false},
 		{"noext", false},
+		{"~$document.docx", false},
+		{"~$temp.docx", false},
+		{"/mnt/c/docs/~$report.docx", false},
 	}
 
 	for _, tt := range tests {

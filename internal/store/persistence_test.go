@@ -115,7 +115,7 @@ func TestReconcile(t *testing.T) {
 		{Vector: []float32{1}, Text: "removed", ChunkIndex: 0},
 	})
 
-	added, removed, updated := s.Reconcile(tmpDir, []string{".txt"})
+	added, removed, updated := s.Reconcile([]string{tmpDir}, []string{".txt"})
 
 	// "new.txt" should be in added
 	if !containsPath(added, filepath.Join(tmpDir, "new.txt")) {

@@ -10,8 +10,14 @@ port: 8123
 # Number of top results to return for each query
 topk: 5
 
-# Directory to monitor for file changes (supports ~ for home)
-watch_dir: "~/Documents"
+# Directories to monitor for file changes (supports ~ for home)
+# Array format (recommended):
+watch_dirs:
+  - "~/Documents"
+  - "/mnt/c/Users/strongtu/Documents/WeiyunSync/120872889/Dropbox/旅游"
+
+# Legacy single-directory format is also supported:
+# watch_dir: "~/Documents"
 
 # Embedding model name (OpenAI API compatible)
 model: "text-embedding-bge-m3"
