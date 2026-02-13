@@ -11,7 +11,7 @@ import (
 	"dense-rag/internal/cleaning"
 )
 
-const DefaultPollInterval = 10 * time.Second
+const DefaultPollInterval = 5 * time.Minute
 
 // fileState holds the metadata used to detect file changes between poll cycles.
 type fileState struct {
