@@ -1,20 +1,32 @@
 # Dense RAG 服务说明文档
 
-Dense RAG 是一个本地文件向量检索服务，监控指定目录下的 txt/docx 文件变化，自动构建向量索引，并通过 HTTP API 提供语义搜索能力。
+Dense RAG 是一个本地文件向量检索服务，监控指定目录下的 txt/docx 文件变化，自动构建向量索引，并通过 HTTP API 和 MCP (Model Context Protocol) 提供语义搜索能力。
 
 ## 快速开始
 
 ### 构建与运行
 
 ```bash
-# 构建
+# 构建 HTTP 服务
 make build
+# 或者: go build -o bin/dense-rag.exe ./cmd/dense-rag
 
-# 运行（使用默认配置）
+# 构建 MCP 服务
+make build-mcp
+# 或者: go build -o bin/dense-rag-mcp.exe ./cmd/dense-rag-mcp
+
+# 构建所有服务
+make build-all
+
+# 运行 HTTP 服务（使用默认配置）
 go run ./cmd/dense-rag
+
+# 运行 MCP 服务
+go run ./cmd/dense-rag-mcp
 
 # 运行（指定配置文件）
 go run ./cmd/dense-rag -config /path/to/config.yaml
+go run ./cmd/dense-rag-mcp -config /path/to/config.yaml
 ```
 
 ### 配置文件
@@ -159,15 +171,81 @@ curl http://127.0.0.1:8123/health
 
 ```
 dense_rag/
-├── cmd/dense-rag/main.go       # 主入口
+├── cmd/
+│   ├── dense-rag/main.go        # HTTP 服务主入口
+│   └── dense-rag-mcp/main.go    # MCP 服务主入口
 ├── internal/
 │   ├── api/                     # HTTP API（gin 框架）
+│   ├── mcp/                     # MCP 服务器实现
 │   ├── config/                  # 配置管理
 │   ├── cleaning/                # 文件读取、docx 清洗、文本分 chunk
 │   ├── embedding/               # OpenAI 兼容 embedding 客户端
 │   ├── store/                   # 内存向量库、持久化、启动对齐
 │   └── watcher/                 # 文件监听、防抖、工作池
 ├── configs/config.example.yaml  # 配置模板
+├── mcp-config.json              # MCP 客户端配置示例
+├── MCP_README.md                # MCP 服务详细说明
+├── test_mcp.py                  # MCP 服务测试脚本
 ├── Makefile                     # 构建脚本
 └── go.mod
 ```
+
+---
+
+## MCP (Model Context Protocol) 服务
+
+Dense RAG 还提供了 MCP 服务器，让 AI agents 可以通过标准化的 MCP 协议访问文档向量搜索功能。
+
+### MCP 服务特性
+
+- **标准协议**: 实现 MCP 2024-11-05 版本规范
+- **工具集成**: 提供 `semantic_search` 和 `get_stats` 两个工具
+- **共享存储**: 与 HTTP 服务共享相同的向量存储
+- **JSON-RPC**: 通过 stdin/stdout 进行 JSON-RPC 2.0 通信
+
+### MCP 工具说明
+
+#### 1. semantic_search
+- **功能**: 在索引的文档中搜索语义相似的文本块
+- **参数**:
+  - `query` (必需): 搜索查询文本
+  - `top_k` (可选): 返回结果数量，默认使用配置值
+- **返回**: 按相似度排序的搜索结果
+
+#### 2. get_stats
+- **功能**: 获取索引文档和向量的统计信息
+- **参数**: 无
+- **返回**: 文件数量、向量数量、存储大小等统计信息
+
+### MCP 使用方法
+
+1. **构建 MCP 服务**:
+```bash
+go build -o bin/dense-rag-mcp.exe ./cmd/dense-rag-mcp
+```
+
+2. **配置 MCP 客户端**:
+```json
+{
+  "mcpServers": {
+    "dense-rag": {
+      "command": "/path/to/dense-rag-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+3. **测试 MCP 服务**:
+```bash
+python test_mcp.py
+```
+
+### 注意事项
+
+- MCP 服务器不监控文件变化，需要先运行 HTTP 服务建立索引
+- MCP 和 HTTP 服务可以同时运行，共享向量存储
+- 确保 embedding 模型服务正在运行
+
+详细的 MCP 使用说明请参考 `MCP_README.md` 文件。

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "dense-rag": {
+      "command": "dense-rag-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
