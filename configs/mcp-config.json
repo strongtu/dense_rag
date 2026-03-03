@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "dense-rag": {
+      "url": "http://localhost:8123/mcp"
+    }
+  }
+}

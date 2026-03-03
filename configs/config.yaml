@@ -1,8 +1,8 @@
 # Dense RAG Service Configuration
 # This is the actual configuration file for the Dense RAG service
 
-# HTTP server listen address
-host: "127.0.0.1"
+# HTTP server listen address (use 0.0.0.0 for LAN access)
+host: "0.0.0.0"
 
 # HTTP server listen port
 port: 8123
@@ -11,10 +11,9 @@ port: 8123
 topk: 5
 
 # Directories to monitor for file changes (supports ~ for home)
-# Array format (recommended):
 watch_dirs:
-  - "~/Documents"
-  - "/mnt/c/Users/strongtu/Documents/WeiyunSync/120872889/Dropbox/旅游"
+  - "/Users/strongtu/微云同步助手(120872889)/Dropbox/金融保险"
+  - "/Users/strongtu/微云同步助手(120872889)/Dropbox/旅游"
 
 # Legacy single-directory format is also supported:
 # watch_dir: "~/Documents"
@@ -23,4 +22,4 @@ watch_dirs:
 model: "text-embedding-bge-m3"
 
 # Embedding service endpoint (OpenAI API compatible)
-model_endpoint: "http://10.45.28.35:1234"
+model_endpoint: "http://localhost:1234"

@@ -120,7 +120,7 @@ func main() {
 
 	stats := st.Stats()
 	dirList := fmt.Sprintf("[%s]", strings.Join(cfg.WatchDirs, ", "))
-	log.Printf("dense-rag started: listening on %s:%d, watching %s, model %s, %d indexed files",
+	log.Printf("dense-rag started: listening on %s:%d (HTTP + MCP POST /mcp), watching %s, model %s, %d indexed files",
 		cfg.Host, cfg.Port, dirList, cfg.Model, stats.IndexedFiles)
 
 	// Wait for interrupt signal.

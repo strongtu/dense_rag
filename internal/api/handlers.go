@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"dense-rag/internal/embedding"
+	"dense-rag/internal/mcp"
 	"dense-rag/internal/store"
 
 	"github.com/gin-gonic/gin"
@@ -60,5 +61,18 @@ func handleHealth(embedClient *embedding.Client, st *store.Store) gin.HandlerFun
 			IndexedFiles:   stats.IndexedFiles,
 			StoreSizeBytes: stats.StoreSizeBytes,
 		})
+	}
+}
+
+// handleMCP handles MCP JSON-RPC over HTTP (POST /mcp). Body is one MCP request, response is one MCP response.
+func handleMCP(mcpServer *mcp.MCPServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req mcp.MCPRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid MCP request: " + err.Error()})
+			return
+		}
+		resp := mcpServer.HandleRequest(c.Request.Context(), &req)
+		c.JSON(http.StatusOK, resp)
 	}
 }

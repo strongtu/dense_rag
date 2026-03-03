@@ -7,6 +7,7 @@ import (
 
 	"dense-rag/internal/config"
 	"dense-rag/internal/embedding"
+	"dense-rag/internal/mcp"
 	"dense-rag/internal/store"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,7 @@ type Server struct {
 	store       *store.Store
 	embedClient *embedding.Client
 	config      *config.Config
+	mcpServer   *mcp.MCPServer
 }
 
 // NewServer creates and configures a new API server.
@@ -32,6 +34,7 @@ func NewServer(cfg *config.Config, st *store.Store, embedClient *embedding.Clien
 		store:       st,
 		embedClient: embedClient,
 		config:      cfg,
+		mcpServer:   mcp.NewMCPServer(st, embedClient, cfg.TopK),
 	}
 
 	s.registerRoutes()
@@ -42,6 +45,7 @@ func NewServer(cfg *config.Config, st *store.Store, embedClient *embedding.Clien
 func (s *Server) registerRoutes() {
 	s.engine.POST("/query", handleQuery(s.embedClient, s.store, s.config.TopK))
 	s.engine.GET("/health", handleHealth(s.embedClient, s.store))
+	s.engine.POST("/mcp", handleMCP(s.mcpServer))
 }
 
 // Start begins listening on the configured host and port. It blocks until

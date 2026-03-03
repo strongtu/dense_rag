@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	embeddingpkg "dense-rag/internal/embedding"
-
 	"dense-rag/internal/config"
+	embeddingpkg "dense-rag/internal/embedding"
+	"dense-rag/internal/mcp"
 	"dense-rag/internal/store"
 )
 
@@ -213,5 +213,151 @@ func TestQueryEmptyStore(t *testing.T) {
 
 	if len(resp) != 0 {
 		t.Errorf("expected empty results, got %d", len(resp))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MCP (POST /mcp) tests — same Server, same test harness as /query and /health.
+// ---------------------------------------------------------------------------
+
+func TestMCPInitialize(t *testing.T) {
+	srv, embedSrv := newTestSetup(t)
+	defer embedSrv.Close()
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Engine().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp mcp.MCPResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode MCP response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("MCP error: %d %s", resp.Error.Code, resp.Error.Message)
+	}
+	result, _ := resp.Result.(map[string]interface{})
+	if result == nil {
+		t.Fatal("expected result object")
+	}
+	if serverInfo, ok := result["serverInfo"].(map[string]interface{}); !ok || serverInfo["name"] != "dense-rag" {
+		t.Errorf("expected serverInfo.name dense-rag, got %v", result["serverInfo"])
+	}
+}
+
+func TestMCPToolsList(t *testing.T) {
+	srv, embedSrv := newTestSetup(t)
+	defer embedSrv.Close()
+
+	body := `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Engine().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp mcp.MCPResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode MCP response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("MCP error: %d %s", resp.Error.Code, resp.Error.Message)
+	}
+	result, _ := resp.Result.(map[string]interface{})
+	tools, _ := result["tools"].([]interface{})
+	if len(tools) < 2 {
+		t.Fatalf("expected at least 2 tools, got %d", len(tools))
+	}
+}
+
+func TestMCPGetStats(t *testing.T) {
+	srv, embedSrv := newTestSetup(t)
+	defer embedSrv.Close()
+
+	body := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_stats","arguments":{}}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Engine().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp mcp.MCPResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode MCP response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("MCP error: %d %s", resp.Error.Code, resp.Error.Message)
+	}
+	result, _ := resp.Result.(map[string]interface{})
+	content, _ := result["content"].([]interface{})
+	if len(content) == 0 {
+		t.Fatal("expected content in get_stats result")
+	}
+	first, _ := content[0].(map[string]interface{})
+	if text, ok := first["text"].(string); !ok || text == "" {
+		t.Errorf("expected content[0].text string, got %v", first["text"])
+	}
+}
+
+func TestMCPToolsCallSemanticSearch(t *testing.T) {
+	srv, embedSrv := newTestSetup(t)
+	defer embedSrv.Close()
+
+	body := `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"semantic_search","arguments":{"query":"hello","top_k":5}}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Engine().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp mcp.MCPResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode MCP response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("MCP error: %d %s", resp.Error.Code, resp.Error.Message)
+	}
+	result, _ := resp.Result.(map[string]interface{})
+	content, _ := result["content"].([]interface{})
+	if len(content) == 0 {
+		t.Fatal("expected content in semantic_search result")
+	}
+	first, _ := content[0].(map[string]interface{})
+	text, _ := first["text"].(string)
+	if text == "" || !strings.Contains(text, "hello world") {
+		t.Errorf("expected result text to mention 'hello world', got %q", text)
+	}
+}
+
+func TestMCPInvalidJSON(t *testing.T) {
+	srv, embedSrv := newTestSetup(t)
+	defer embedSrv.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Engine().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }

@@ -159,6 +159,12 @@ func (s *MCPServer) Start(ctx context.Context) error {
 	return scanner.Err()
 }
 
+// HandleRequest processes an MCP JSON-RPC request and returns a response.
+// It is used by both stdio and HTTP transports.
+func (s *MCPServer) HandleRequest(ctx context.Context, req *MCPRequest) *MCPResponse {
+	return s.handleRequest(ctx, req)
+}
+
 // handleRequest processes an MCP request and returns a response
 func (s *MCPServer) handleRequest(ctx context.Context, req *MCPRequest) *MCPResponse {
 	switch req.Method {
@@ -188,7 +194,7 @@ func (s *MCPServer) handleInitialize(req *MCPRequest) *MCPResponse {
 			Tools: map[string]interface{}{},
 		},
 		ServerInfo: ServerInfo{
-			Name:    "dense-rag-mcp",
+			Name:    "dense-rag",
 			Version: "1.0.0",
 		},
 	}
@@ -357,7 +363,7 @@ func (s *MCPServer) handleSemanticSearch(ctx context.Context, id interface{}, ar
 func (s *MCPServer) handleGetStats(id interface{}) *MCPResponse {
 	stats := s.store.Stats()
 	
-	statsText := fmt.Sprintf("Dense RAG Statistics:\n")
+	statsText := "Dense RAG Statistics:\n"
 	statsText += fmt.Sprintf("- Indexed Files: %d\n", stats.IndexedFiles)
 	statsText += fmt.Sprintf("- Vector Count: %d\n", stats.VectorCount)
 	statsText += fmt.Sprintf("- Store Size: %d bytes\n", stats.StoreSizeBytes)

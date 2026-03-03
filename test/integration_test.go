@@ -270,6 +270,17 @@ func healthOnce(baseURL string) (HealthResponse, error) {
 	return hr, nil
 }
 
+// mcpPost sends a single MCP JSON-RPC request to POST /mcp and returns status code and body.
+func mcpPost(baseURL, body string) (int, []byte, error) {
+	resp, err := http.Post(baseURL+"/mcp", "application/json", strings.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, data, nil
+}
+
 // pollQuery polls POST /query until matchFn returns true or timeout is reached.
 func pollQuery(t *testing.T, baseURL, text string, matchFn func([]ResultItem) bool, timeout time.Duration) []ResultItem {
 	t.Helper()
@@ -552,6 +563,83 @@ func TestHealthCountsChange(t *testing.T) {
 		// Sanity: vector_count should have decreased too.
 	}
 	t.Logf("TC-06 PASS: indexed_files=%d vector_count=%d (decreased after removal)", hr.IndexedFiles, hr.VectorCount)
+}
+
+// ===========================================================================
+// MCP over HTTP: POST /mcp (same service as /query and /health)
+// ===========================================================================
+
+func TestMCPOverHTTP(t *testing.T) {
+	si, cleanup := startService(t)
+	defer cleanup()
+
+	// Initialize
+	code, data, err := mcpPost(si.baseURL, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}`)
+	if err != nil {
+		t.Fatalf("MCP initialize request failed: %v", err)
+	}
+	if code != 200 {
+		t.Fatalf("MCP initialize: expected 200, got %d: %s", code, string(data))
+	}
+	var initResp map[string]interface{}
+	if err := json.Unmarshal(data, &initResp); err != nil {
+		t.Fatalf("MCP initialize response decode: %v", err)
+	}
+	if errObj, ok := initResp["error"].(map[string]interface{}); ok && errObj != nil {
+		t.Fatalf("MCP initialize error: %v", errObj)
+	}
+	result, _ := initResp["result"].(map[string]interface{})
+	serverInfo, _ := result["serverInfo"].(map[string]interface{})
+	if name, _ := serverInfo["name"].(string); name != "dense-rag" {
+		t.Errorf("MCP initialize: expected serverInfo.name dense-rag, got %q", name)
+	}
+
+	// tools/list
+	code, data, err = mcpPost(si.baseURL, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	if err != nil {
+		t.Fatalf("MCP tools/list request failed: %v", err)
+	}
+	if code != 200 {
+		t.Fatalf("MCP tools/list: expected 200, got %d: %s", code, string(data))
+	}
+	var listResp map[string]interface{}
+	if err := json.Unmarshal(data, &listResp); err != nil {
+		t.Fatalf("MCP tools/list response decode: %v", err)
+	}
+	if errObj, ok := listResp["error"].(map[string]interface{}); ok && errObj != nil {
+		t.Fatalf("MCP tools/list error: %v", errObj)
+	}
+	result, _ = listResp["result"].(map[string]interface{})
+	tools, _ := result["tools"].([]interface{})
+	if len(tools) < 2 {
+		t.Errorf("MCP tools/list: expected at least 2 tools, got %d", len(tools))
+	}
+
+	// tools/call get_stats
+	code, data, err = mcpPost(si.baseURL, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_stats","arguments":{}}}`)
+	if err != nil {
+		t.Fatalf("MCP get_stats request failed: %v", err)
+	}
+	if code != 200 {
+		t.Fatalf("MCP get_stats: expected 200, got %d: %s", code, string(data))
+	}
+	var statsResp map[string]interface{}
+	if err := json.Unmarshal(data, &statsResp); err != nil {
+		t.Fatalf("MCP get_stats response decode: %v", err)
+	}
+	if errObj, ok := statsResp["error"].(map[string]interface{}); ok && errObj != nil {
+		t.Fatalf("MCP get_stats error: %v", errObj)
+	}
+	result, _ = statsResp["result"].(map[string]interface{})
+	content, _ := result["content"].([]interface{})
+	if len(content) == 0 {
+		t.Error("MCP get_stats: expected non-empty content")
+	} else if first, ok := content[0].(map[string]interface{}); ok {
+		if text, _ := first["text"].(string); text == "" {
+			t.Error("MCP get_stats: expected content[0].text non-empty")
+		}
+	}
+	t.Logf("MCP over HTTP PASS: initialize, tools/list, get_stats")
 }
 
 // ===========================================================================
