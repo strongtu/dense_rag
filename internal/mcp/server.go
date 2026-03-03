@@ -8,10 +8,13 @@ import (
 	"io"
 	"log"
 	"os"
+	"unicode/utf8"
 
 	"dense-rag/internal/embedding"
 	"dense-rag/internal/store"
 )
+
+const maxDocumentSize = 5 << 20 // 5MB for get_document
 
 // MCPServer implements the Model Context Protocol server for dense_rag
 type MCPServer struct {
@@ -210,8 +213,8 @@ func (s *MCPServer) handleInitialize(req *MCPRequest) *MCPResponse {
 func (s *MCPServer) handleToolsList(req *MCPRequest) *MCPResponse {
 	tools := []Tool{
 		{
-			Name:        "semantic_search",
-			Description: "Search for semantically similar text chunks in the indexed documents",
+			Name: "semantic_search",
+			Description: "Search for semantically similar text chunks in the indexed documents. Returns a JSON array in result.content[0].text; each item has: text (matched snippet), file_path (absolute path on server, use with get_document to fetch full file), score (cosine similarity 0~1). Example: [{\"text\":\"...\",\"file_path\":\"/path/to/file.txt\",\"score\":0.92}]",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]interface{}{
@@ -236,6 +239,20 @@ func (s *MCPServer) handleToolsList(req *MCPRequest) *MCPResponse {
 				Type:       "object",
 				Properties: map[string]interface{}{},
 				Required:   []string{},
+			},
+		},
+		{
+			Name:        "get_document",
+			Description: "Get the full text content of an indexed file. Use the file_path returned by semantic_search so the server (which has the files) can return the content for the agent to analyze.",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"file_path": map[string]interface{}{
+						"type":        "string",
+						"description": "Exact file path as returned by semantic_search (path on the server machine)",
+					},
+				},
+				Required: []string{"file_path"},
 			},
 		},
 	}
@@ -280,6 +297,8 @@ func (s *MCPServer) handleToolsCall(ctx context.Context, req *MCPRequest) *MCPRe
 		return s.handleSemanticSearch(ctx, req.ID, params.Arguments)
 	case "get_stats":
 		return s.handleGetStats(req.ID)
+	case "get_document":
+		return s.handleGetDocument(req.ID, params.Arguments)
 	default:
 		return &MCPResponse{
 			JSONRPC: "2.0",
@@ -329,33 +348,71 @@ func (s *MCPServer) handleSemanticSearch(ctx context.Context, id interface{}, ar
 	
 	// Search for similar vectors
 	results := s.store.Search(vec, topK)
-	
-	// Format results as text
-	var resultText string
-	if len(results) == 0 {
-		resultText = "No results found for the query."
-	} else {
-		resultText = fmt.Sprintf("Found %d results for query '%s':\n\n", len(results), query)
-		for i, result := range results {
-			resultText += fmt.Sprintf("Result %d (Score: %.4f):\n", i+1, result.Score)
-			resultText += fmt.Sprintf("File: %s\n", result.FilePath)
-			resultText += fmt.Sprintf("Text: %s\n\n", result.Text)
-		}
+
+	// Return structured JSON (same shape as HTTP POST /query) so agent can parse: [{ "text", "file_path", "score" }, ...]
+	type resultItem struct {
+		Text     string  `json:"text"`
+		FilePath string  `json:"file_path"`
+		Score    float32 `json:"score"`
 	}
-	
-	content := []Content{
-		{
-			Type: "text",
-			Text: resultText,
-		},
+	items := make([]resultItem, len(results))
+	for i, r := range results {
+		items[i] = resultItem{Text: r.Text, FilePath: r.FilePath, Score: r.Score}
 	}
-	
-	result := ToolsCallResult{Content: content}
-	
+	jsonBytes, _ := json.Marshal(items)
+	content := []Content{{Type: "text", Text: string(jsonBytes)}}
+
 	return &MCPResponse{
 		JSONRPC: "2.0",
 		ID:      id,
-		Result:  result,
+		Result:  &ToolsCallResult{Content: content},
+	}
+}
+
+// handleGetDocument returns the full text content of an indexed file (for agent on another machine to fetch via MCP).
+func (s *MCPServer) handleGetDocument(id interface{}, args map[string]interface{}) *MCPResponse {
+	filePath, ok := args["file_path"].(string)
+	if !ok || filePath == "" {
+		return &MCPResponse{
+			JSONRPC: "2.0",
+			ID:      id,
+			Error: &MCPError{
+				Code:    -32602,
+				Message: "Missing or invalid 'file_path' parameter",
+			},
+		}
+	}
+	if !s.store.HasIndexedFile(filePath) {
+		content := []Content{{Type: "text", Text: "File not indexed or path invalid."}}
+		return &MCPResponse{JSONRPC: "2.0", ID: id, Result: &ToolsCallResult{Content: content}}
+	}
+	info, err := os.Stat(filePath)
+	if err != nil {
+		msg := "file not found"
+		if !os.IsNotExist(err) {
+			msg = "cannot stat file: " + err.Error()
+		}
+		content := []Content{{Type: "text", Text: msg}}
+		return &MCPResponse{JSONRPC: "2.0", ID: id, Result: &ToolsCallResult{Content: content}}
+	}
+	if info.Size() > maxDocumentSize {
+		content := []Content{{Type: "text", Text: "File too large (max 5MB)."}}
+		return &MCPResponse{JSONRPC: "2.0", ID: id, Result: &ToolsCallResult{Content: content}}
+	}
+	raw, err := os.ReadFile(filePath)
+	if err != nil {
+		content := []Content{{Type: "text", Text: "Cannot read file: " + err.Error()}}
+		return &MCPResponse{JSONRPC: "2.0", ID: id, Result: &ToolsCallResult{Content: content}}
+	}
+	if !utf8.Valid(raw) {
+		content := []Content{{Type: "text", Text: "File is not valid UTF-8 text."}}
+		return &MCPResponse{JSONRPC: "2.0", ID: id, Result: &ToolsCallResult{Content: content}}
+	}
+	content := []Content{{Type: "text", Text: string(raw)}}
+	return &MCPResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  &ToolsCallResult{Content: content},
 	}
 }
 

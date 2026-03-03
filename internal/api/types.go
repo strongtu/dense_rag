@@ -22,3 +22,13 @@ type HealthResponse struct {
 	IndexedFiles   int    `json:"indexed_files"`
 	StoreSizeBytes int64  `json:"store_size_bytes"`
 }
+
+// DocumentRequest is the JSON body for the /document endpoint (fetch full file content by path from search results).
+type DocumentRequest struct {
+	FilePath string `json:"file_path"`
+}
+
+// DocumentResponse is the JSON body returned by /document.
+type DocumentResponse struct {
+	Content string `json:"content"`
+}

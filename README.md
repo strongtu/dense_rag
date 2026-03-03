@@ -87,6 +87,16 @@ curl -X POST http://127.0.0.1:8123/query \
 
 结果数量由配置 `topk` 控制；向量库为空时返回 `[]`。
 
+### POST /document
+
+按路径拉取已索引文件的**全文**。适用于服务在 B 机、Agent 在 A 机时：A 先用 `/query` 拿到 `file_path`，再调本接口向 B 请求该文件的完整内容以便继续分析。
+
+- **Method**: `POST`
+- **Content-Type**: `application/json`
+- **请求体**: `{"file_path": "/服务端机器上的绝对路径"}`（必须与检索结果中的 `file_path` 完全一致）
+
+**成功 (200)**：`{"content": "文件全文（UTF-8 文本）"}`。仅支持已索引且 ≤5MB 的 UTF-8 文本文件；否则返回 404/413/415。
+
 **错误 (400)**：请求体错误或 `text` 为空。  
 **错误 (500)**：embedding 调用失败。
 

@@ -3,6 +3,8 @@ package api
 import (
 	"log"
 	"net/http"
+	"os"
+	"unicode/utf8"
 
 	"dense-rag/internal/embedding"
 	"dense-rag/internal/mcp"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+const maxDocumentSize = 5 << 20 // 5MB
 
 // handleQuery processes a semantic search request.
 func handleQuery(embedClient *embedding.Client, st *store.Store, topK int) gin.HandlerFunc {
@@ -62,6 +66,48 @@ func handleHealth(embedClient *embedding.Client, st *store.Store) gin.HandlerFun
 			IndexedFiles:   stats.IndexedFiles,
 			StoreSizeBytes: stats.StoreSizeBytes,
 		})
+	}
+}
+
+// handleDocument returns the full text content of an indexed file. The file_path must be exactly as returned by /query so that agent on another machine can fetch content from this server.
+func handleDocument(st *store.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req DocumentRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		if req.FilePath == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "file_path is required"})
+			return
+		}
+		if !st.HasIndexedFile(req.FilePath) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "file not indexed or path invalid"})
+			return
+		}
+		info, err := os.Stat(req.FilePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot stat file: " + err.Error()})
+			return
+		}
+		if info.Size() > maxDocumentSize {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large (max 5MB)"})
+			return
+		}
+		raw, err := os.ReadFile(req.FilePath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot read file: " + err.Error()})
+			return
+		}
+		if !utf8.Valid(raw) {
+			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "file is not valid UTF-8 text"})
+			return
+		}
+		c.JSON(http.StatusOK, DocumentResponse{Content: string(raw)})
 	}
 }
 

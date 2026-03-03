@@ -47,6 +47,7 @@ func NewServer(cfg *config.Config, st *store.Store, embedClient *embedding.Clien
 func (s *Server) registerRoutes() {
 	s.engine.POST("/query", handleQuery(s.embedClient, s.store, s.config.TopK))
 	s.engine.GET("/health", handleHealth(s.embedClient, s.store))
+	s.engine.POST("/document", handleDocument(s.store))
 	s.engine.POST("/mcp", handleMCP(s.mcpServer))
 }
 

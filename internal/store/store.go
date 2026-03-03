@@ -166,3 +166,12 @@ func (s *Store) FileMtime(filePath string) (int64, bool) {
 	mt, ok := s.fileMtimes[filePath]
 	return mt, ok
 }
+
+// HasIndexedFile reports whether the given path is an indexed file (for safe document fetch).
+func (s *Store) HasIndexedFile(filePath string) bool {
+	s.RLock()
+	defer s.RUnlock()
+
+	_, ok := s.fileIndex[filePath]
+	return ok
+}
