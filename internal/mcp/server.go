@@ -8,8 +8,8 @@ import (
 	"io"
 	"log"
 	"os"
-	"unicode/utf8"
 
+	"dense-rag/internal/cleaning"
 	"dense-rag/internal/embedding"
 	"dense-rag/internal/store"
 )
@@ -399,16 +399,17 @@ func (s *MCPServer) handleGetDocument(id interface{}, args map[string]interface{
 		content := []Content{{Type: "text", Text: "File too large (max 5MB)."}}
 		return &MCPResponse{JSONRPC: "2.0", ID: id, Result: &ToolsCallResult{Content: content}}
 	}
-	raw, err := os.ReadFile(filePath)
+	// Use same reader as indexing: .txt as UTF-8, .docx via docx2md to plain text
+	text, err := cleaning.ReadFile(filePath)
 	if err != nil {
 		content := []Content{{Type: "text", Text: "Cannot read file: " + err.Error()}}
 		return &MCPResponse{JSONRPC: "2.0", ID: id, Result: &ToolsCallResult{Content: content}}
 	}
-	if !utf8.Valid(raw) {
-		content := []Content{{Type: "text", Text: "File is not valid UTF-8 text."}}
+	if int64(len(text)) > maxDocumentSize {
+		content := []Content{{Type: "text", Text: "Extracted text too large (max 5MB)."}}
 		return &MCPResponse{JSONRPC: "2.0", ID: id, Result: &ToolsCallResult{Content: content}}
 	}
-	content := []Content{{Type: "text", Text: string(raw)}}
+	content := []Content{{Type: "text", Text: text}}
 	return &MCPResponse{
 		JSONRPC: "2.0",
 		ID:      id,

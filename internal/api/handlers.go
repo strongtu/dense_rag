@@ -4,8 +4,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"unicode/utf8"
 
+	"dense-rag/internal/cleaning"
 	"dense-rag/internal/embedding"
 	"dense-rag/internal/mcp"
 	"dense-rag/internal/store"
@@ -98,16 +98,17 @@ func handleDocument(st *store.Store) gin.HandlerFunc {
 			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large (max 5MB)"})
 			return
 		}
-		raw, err := os.ReadFile(req.FilePath)
+		// Use same reader as indexing: .txt as UTF-8, .docx via docx2md to plain text
+		content, err := cleaning.ReadFile(req.FilePath)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot read file: " + err.Error()})
 			return
 		}
-		if !utf8.Valid(raw) {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "file is not valid UTF-8 text"})
+		if int64(len(content)) > maxDocumentSize {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "extracted text too large (max 5MB)"})
 			return
 		}
-		c.JSON(http.StatusOK, DocumentResponse{Content: string(raw)})
+		c.JSON(http.StatusOK, DocumentResponse{Content: content})
 	}
 }
 
