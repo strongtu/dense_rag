@@ -38,7 +38,7 @@ const (
 // ---------------------------------------------------------------------------
 
 var (
-	modelEndpoint = "http://10.45.28.35:1234"
+	modelEndpoint = "http://localhost:1234"
 	modelName     = "text-embedding-bge-m3"
 	binaryPath    string
 )

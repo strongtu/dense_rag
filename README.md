@@ -13,8 +13,11 @@ make build
 ./bin/dense-rag
 # 或 make run
 
-# 指定配置文件
-./bin/dense-rag -config /path/to/config.yaml
+# 指定配置文件（先构建再运行）
+./bin/dense-rag -config configs/config.yaml
+
+# 不构建直接运行（须从项目根目录执行）
+go run ./cmd/dense-rag -config configs/config.yaml
 ```
 
 ### 配置
