@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
+	"net"
 	"net/http"
 
 	"dense-rag/internal/config"
@@ -51,14 +53,20 @@ func (s *Server) registerRoutes() {
 // Start begins listening on the configured host and port. It blocks until
 // the server shuts down or encounters an error.
 func (s *Server) Start(ctx context.Context) error {
+	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 	s.httpServer = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", s.config.Host, s.config.Port),
+		Addr:    addr,
 		Handler: s.engine,
 	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	log.Printf("http: listening on %s", listener.Addr().String())
 
 	errCh := make(chan error, 1)
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 		close(errCh)

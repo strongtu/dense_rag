@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"dense-rag/internal/embedding"
@@ -72,6 +73,7 @@ func handleMCP(mcpServer *mcp.MCPServer) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid MCP request: " + err.Error()})
 			return
 		}
+		log.Printf("mcp: request from %s method %s", c.ClientIP(), req.Method)
 		resp := mcpServer.HandleRequest(c.Request.Context(), &req)
 		c.JSON(http.StatusOK, resp)
 	}
